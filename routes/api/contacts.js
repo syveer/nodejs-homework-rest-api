@@ -1,59 +1,170 @@
-// GET /api/contacts
-app.get("/api/contacts", (req, res) => {
-  const contacts = listContacts();
-  res.json(contacts);
+const express = require("express");
+const Joi = require("joi");
+
+const {
+  listContacts,
+  getContactById,
+  addContact,
+  removeContact,
+  updateContact,
+  updateStatusContact,
+} = require("../../controller/contactsController");
+
+const router = express.Router();
+
+const STATUS_CODES = {
+  success: 200,
+  created: 201,
+  deleted: 204,
+  notFound: 404,
+  badRequest: 400,
+  error: 500,
+};
+
+const nameExistence = Joi.object({
+  name: Joi.string().required(),
 });
 
-// GET /api/contacts/:id
-app.get("/api/contacts/:id", (req, res) => {
-  const contact = getById(req.params.id);
-  if (contact) {
-    res.json(contact);
-  } else {
-    res.status(404).json({ message: "Not found" });
+const formatSchema = Joi.object({
+  name: Joi.string().pattern(/^[a-zA-Z\s-]+$/),
+  email: Joi.string().email({
+    minDomainSegments: 2,
+  }),
+  phone: Joi.string().pattern(/^[0-9\s\-()+]+$/),
+});
+
+const respondWithError = (res, error) => {
+  console.error(error);
+  res.status(STATUS_CODES.error).json({ message: `${error}` });
+};
+
+router.get("/", async (req, res) => {
+  try {
+    const contacts = await listContacts();
+    res
+      .status(STATUS_CODES.success)
+      .json({ message: "The list was successfully returned", data: contacts });
+  } catch (error) {
+    respondWithError(res, error);
   }
 });
 
-// POST /api/contacts
-app.post("/api/contacts", (req, res) => {
-  // Validăm datele primite în corpul cererii
-  const { error } = validateContact(req.body);
-  // Dacă există erori de validare, returnăm un răspuns cu status code 400 și mesajul de eroare
-  if (error) {
-    return res.status(400).json({ message: error.details[0].message });
-  }
-  // Dacă datele sunt valide, adăugăm contactul și returnăm un răspuns cu status code 201 și contactul adăugat
-  const contact = addContact(req.body);
-  res.status(201).json(contact);
-});
+router.get("/:contactId", async (req, res) => {
+  try {
+    const contact = await getContactById(req.params.contactId);
 
-// DELETE /api/contacts/:id
-app.delete("/api/contacts/:id", (req, res) => {
-  const result = removeContact(req.params.id);
-  if (result) {
-    res.json({ message: "Contact deleted" });
-  } else {
-    res.status(404).json({ message: "Not found" });
+    if (!contact) {
+      throw new Error("The contact was not found");
+    }
+
+    res.status(STATUS_CODES.success).json({
+      message: "The contact has been returned successfully",
+      data: contact,
+    });
+  } catch (error) {
+    respondWithError(res, error);
   }
 });
 
-// PUT /api/contacts/:id
-app.put("/api/contacts/:id", (req, res) => {
-  // Validăm datele primite în corpul cererii
-  const { error } = validateContact(req.body);
-  // Dacă există erori de validare, returnăm un răspuns cu status code 400 și mesajul de eroare
-  if (error) {
-    return res.status(400).json({ message: error.details[0].message });
+router.post("/", async (req, res) => {
+  const { name, email, phone } = req.body;
+
+  const { error: existenceError } = nameExistence.validate({ name });
+
+  if (existenceError) {
+    res
+      .status(STATUS_CODES.badRequest)
+      .json({ message: "Name field is required" });
+    return;
   }
-  // Dacă datele sunt valide, actualizăm contactul cu ID-ul specificat
-  const contactId = req.params.id;
-  const updatedContact = req.body;
-  const success = updateContact(contactId, updatedContact);
-  // Dacă contactul a fost actualizat, returnăm contactul actualizat și status code 200
-  if (success) {
-    res.json(success);
-  } else {
-    // Dacă ID-ul specificat nu există, returnăm un răspuns cu status code 404 și un mesaj
-    res.status(404).json({ message: "Contact not found" });
+
+  const { error: formatError } = formatSchema.validate({ name, email, phone });
+
+  if (formatError) {
+    res
+      .status(STATUS_CODES.badRequest)
+      .json({ message: formatError.details[0].message });
+    return;
+  }
+
+  try {
+    const newContact = await addContact({ name, email, phone });
+    res.status(STATUS_CODES.created).json(newContact);
+  } catch (error) {
+    respondWithError(res, error);
   }
 });
+
+router.delete("/:contactId", async (req, res) => {
+  try {
+    const contactId = req.params.contactId;
+    const removedContact = await removeContact(contactId);
+
+    if (!removedContact) {
+      res
+        .status(STATUS_CODES.notFound)
+        .json({ message: "The contact was not found" });
+      return;
+    }
+
+    res
+      .status(STATUS_CODES.deleted)
+      .json({ message: "Contact deleted successfully" });
+  } catch (error) {
+    respondWithError(res, error);
+  }
+});
+
+router.put("/:contactId", async (req, res) => {
+  const { name, email, phone } = req.body;
+  const contactId = req.params.contactId;
+
+  const { error: formatError } = formatSchema.validate({ name, email, phone });
+
+  if (formatError) {
+    res
+      .status(STATUS_CODES.badRequest)
+      .json({ message: formatError.details[0].message });
+    return;
+  }
+
+  try {
+    const updatedContact = await updateContact(req.body, contactId);
+
+    if (!updatedContact) {
+      res
+        .status(STATUS_CODES.notFound)
+        .json({ message: "The contact was not found" });
+      return;
+    }
+
+    res.status(STATUS_CODES.success).json(updatedContact);
+  } catch (error) {
+    respondWithError(res, error);
+  }
+});
+
+router.patch("/:contactId/favorite", async (req, res) => {
+  const { favorite } = req.body;
+  const contactId = req.params.contactId;
+
+  if (favorite === undefined) {
+    return res
+      .status(STATUS_CODES.badRequest)
+      .json({ message: "missing field favorite" });
+  }
+
+  try {
+    const updatedContact = await updateStatusContact(contactId, { favorite });
+
+    if (!updatedContact) {
+      return res.status(STATUS_CODES.notFound).json({ message: "Not found" });
+    }
+
+    res.status(STATUS_CODES.success).json(updatedContact);
+  } catch (error) {
+    respondWithError(res, error);
+  }
+});
+
+module.exports = router;

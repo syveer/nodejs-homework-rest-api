@@ -1,4 +1,4 @@
-const Contact = require("../models/contacts");
+const Contact = require("../models/contact");
 const colors = require("colors");
 
 const listContacts = async (page = 1, limit = 5, favorite) => {
@@ -26,9 +26,13 @@ const listContacts = async (page = 1, limit = 5, favorite) => {
 const getContactById = async (contactId) => {
   try {
     console.log(
-      colors.bgYellow.italic.bold(`--- List Contact with id ${contactId}: ---`)
+      colors.bgYellow.italic.bold(`--- Get Contact with id ${contactId}: ---`)
     );
-    return await Contact.findById(contactId);
+    const contact = await Contact.findById(contactId);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    return contact;
   } catch (error) {
     console.error(colors.bgRed.italic.bold(error));
     throw new Error(`Error getting contact by id: ${error.message}`);
@@ -42,7 +46,11 @@ const removeContact = async (contactId) => {
         `--- Delete Contact with id ${contactId}: ---`
       )
     );
-    return await Contact.findByIdAndDelete(contactId);
+    const contact = await Contact.findByIdAndDelete(contactId);
+    if (!contact) {
+      throw new Error("Contact not found");
+    }
+    return contact;
   } catch (error) {
     console.error(colors.bgRed.italic.bold(error));
     throw new Error(`Error removing contact: ${error.message}`);
@@ -50,8 +58,8 @@ const removeContact = async (contactId) => {
 };
 
 const addContact = async (contact) => {
-  console.log(colors.bgYellow.italic.bold(`---  New Contact Created: ---`));
   try {
+    console.log(colors.bgYellow.italic.bold("--- New Contact Created: ---"));
     return await Contact.create(contact);
   } catch (error) {
     console.error(colors.bgRed.italic.bold(error));
@@ -60,17 +68,19 @@ const addContact = async (contact) => {
 };
 
 const updateContact = async (updatedContact, contactId) => {
-  console.log(
-    colors.bgYellow.italic.bold(`--- Update Contact with id ${contactId}: ---`)
-  );
   try {
+    console.log(
+      colors.bgYellow.italic.bold(
+        `--- Update Contact with id ${contactId}: ---`
+      )
+    );
     const updatedDoc = await Contact.findByIdAndUpdate(
       contactId,
       updatedContact,
       { new: true }
     );
     if (!updatedDoc) {
-      throw new Error("The contact was not found.");
+      throw new Error("Contact not found");
     }
     return updatedDoc;
   } catch (error) {
@@ -80,23 +90,23 @@ const updateContact = async (updatedContact, contactId) => {
 };
 
 const updateStatusContact = async (contactId, updatedStatus) => {
-  console.log(
-    colors.bgYellow.italic.bold(
-      `--- Change Status for Contact with id ${contactId}: --- `
-    )
-  );
   try {
+    console.log(
+      colors.bgYellow.italic.bold(
+        `--- Change Status for Contact with id ${contactId}: --- `
+      )
+    );
     const updatedDoc = await Contact.findByIdAndUpdate(
       contactId,
       updatedStatus,
       { new: true }
     );
     if (!updatedDoc) {
-      throw new Error("The contact was not found.");
+      throw new Error("Contact not found");
     }
     return updatedDoc;
   } catch (error) {
-    console.error(colors.red(error));
+    console.error(colors.bgRed.italic.bold(error));
     throw new Error(`Error updating contact status: ${error.message}`);
   }
 };

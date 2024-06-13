@@ -1,6 +1,6 @@
 const passport = require("passport");
 const passportJWT = require("passport-jwt");
-const User = require("../models/user");
+const User = require("./models/user");
 require("dotenv").config();
 
 const secret = process.env.TOKEN_SECRET;
@@ -14,7 +14,7 @@ const params = {
 };
 
 passport.use(
-  new Strategy(params, (payload, done) => {
+  new Strategy(params, function (payload, done) {
     User.findById(payload.userId)
       .then((user) => {
         if (!user) {

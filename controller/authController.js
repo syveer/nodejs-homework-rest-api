@@ -1,82 +1,111 @@
-const User = require("../models/user");
-const bcrypt = require("bcryptjs");
+const passport = require("passport");
 const jwt = require("jsonwebtoken");
-const Joi = require("joi");
+const User = require("../models/user");
+require("dotenv").config();
+const gravatar = require("gravatar");
 
-const signupSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
-});
-
-const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().required(),
-});
-
-exports.signup = async (req, res) => {
-  const { error } = signupSchema.validate(req.body);
-  if (error) return res.status(400).json(error.details);
-
-  const { email, password } = req.body;
-
-  try {
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(409).json({ message: "Email in use" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = new User({
-      email,
-      password: hashedPassword,
-      subscription: "starter",
-    });
-
-    await user.save();
-
-    res.status(201).json({
-      user: {
-        email: user.email,
-        subscription: user.subscription,
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+const AuthController = {
+  signup,
+  login,
+  validateAuth,
+  getPayloadFromJWT,
 };
 
-exports.login = async (req, res) => {
-  const { error } = loginSchema.validate(req.body);
-  if (error) return res.status(400).json(error.details);
+const secretForToken = process.env.TOKEN_SECRET;
 
-  const { email, password } = req.body;
+async function signup(data) {
+  const { email, password } = data;
 
-  try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({ message: "Email or password is wrong" });
-    }
+  if (!email || !password) {
+    throw new Error("Email and password are required");
+  }
 
-    const isPasswordCorrect = await bcrypt.compare(password, user.password);
-    if (!isPasswordCorrect) {
-      return res.status(401).json({ message: "Email or password is wrong" });
-    }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    throw new Error("Invalid email format");
+  }
 
-    const token = jwt.sign({ id: user._id }, "your_jwt_secret", {
+  if (password.length < 8) {
+    throw new Error("Password must be at least 8 characters long");
+  }
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    throw new Error("Email in use");
+  }
+
+  const userAvatar = gravatar.url(email);
+
+  const newUser = new User({
+    email: email,
+    subscription: "starter",
+    token: null,
+    avatarURL: userAvatar,
+  });
+
+  newUser.setPassword(password);
+
+  await newUser.save();
+
+  return newUser;
+}
+
+async function login(data) {
+  const { email, password } = data;
+
+  if (!email || !password) {
+    throw new Error("Email and password are required");
+  }
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw new Error("Email or password is wrong");
+  }
+
+  const passwordMatch = user.validPassword(password);
+  if (!passwordMatch) {
+    throw new Error("Email or password is wrong");
+  }
+
+  const token = jwt.sign(
+    {
+      userId: user._id,
+    },
+    secretForToken,
+    {
       expiresIn: "1h",
-    });
-    user.token = token;
-    await user.save();
+    }
+  );
 
-    res.status(200).json({
-      token,
-      user: {
-        email: user.email,
-        subscription: user.subscription,
-      },
-    });
+  user.token = token;
+  await user.save();
+
+  return { token, user };
+}
+
+function getPayloadFromJWT(token) {
+  try {
+    const payload = jwt.verify(token, secretForToken);
+    return payload;
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err);
+    return null;
   }
-};
+}
+
+function validateAuth(req, res, next) {
+  passport.authenticate("jwt", { session: false }, (err, user) => {
+    if (err || !user) {
+      return res.status(401).json({
+        status: "error",
+        code: 401,
+        message: "Unauthorized",
+        data: "Unauthorized",
+      });
+    }
+    req.user = user;
+    next();
+  })(req, res, next);
+}
+
+module.exports = AuthController;

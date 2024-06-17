@@ -1,25 +1,45 @@
-const express = require('express')
-const logger = require('morgan')
-const cors = require('cors')
+const express = require("express");
+const logger = require("morgan");
+const cors = require("cors");
+const dbConnection = require("./utiles/dbConnection");
+const passport = require("./passport");
+const { STATUS_CODES } = require("./utiles/constants");
 
-const contactsRouter = require('./routes/api/contacts')
+const contactsRouter = require("./routes/contacts");
+const authRouter = require("./routes/auth");
+const userRouter = require("./routes/users");
 
-const app = express()
+const app = express();
+const formatsLogger = app.get("env") === "development" ? "dev" : "short";
 
-const formatsLogger = app.get('env') === 'development' ? 'dev' : 'short'
+// Conectarea la baza de date
+dbConnection();
 
-app.use(logger(formatsLogger))
-app.use(cors())
-app.use(express.json())
+// Middleware
+app.use(express.static("public"));
+app.use(logger(formatsLogger));
+app.use(cors());
+app.use(express.json());
+app.use(passport.initialize());
 
-app.use('/api/contacts', contactsRouter)
+// Rute
+app.use("/auth", authRouter);
+app.use("/users", userRouter);
+app.use(
+  "/contacts",
+  passport.authenticate("jwt", { session: false }),
+  contactsRouter
+);
 
+// Ruta pentru gestionarea erorilor 404
 app.use((req, res) => {
-  res.status(404).json({ message: 'Not found' })
-})
+  res.status(STATUS_CODES.notFound).json({ message: "Not found" });
+});
 
+// Middleware pentru gestionarea erorilor
 app.use((err, req, res, next) => {
-  res.status(500).json({ message: err.message })
-})
+  console.error(err.stack); // Înregistrează stack trace-ul erorii
+  res.status(STATUS_CODES.error).json({ message: "Server error" });
+});
 
-module.exports = app
+module.exports = app;
